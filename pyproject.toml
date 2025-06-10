@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tech_ts"
+version = "0.1.0"
+description = "Modular pipeline for time-series technical indicators"
+authors = [{name="Angad Bhatti"}]
+dependencies = [
+  "pandas>=1.5",
+  "numpy>=1.21",
+  "yfinance",
+  "hmmlearn",
+  "scikit-learn"
+]
+
+[project.scripts]
+walkforward = "tech_ts.walkforward_backtest:main"
