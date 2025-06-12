@@ -1,0 +1,12 @@
+Difficult to use time series on technical indicators because they are made from past data. (Will easily overfit)
+
+
+
+
+Updates:
+Crave out test_data from train_data itself in rolling tuning
+Instead of hard coding 1 day lag between returns and indicator series, it is better to tune this setting as well
+Verify time series in indicator calc to avoid lookahead
+Fine tune indicator calculation
+
+Sit n go through step by step and confirm no lookahead 

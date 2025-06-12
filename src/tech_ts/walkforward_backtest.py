@@ -52,6 +52,7 @@ def run_walkforward_pipeline(
     # 1. Fetch data
     prices = download_prices(tickers, start=start, end=end)
     close = prices.iloc[:, 0]  # e.g., SPY by default
+    print(prices.index[-1])
 
     # Store aggregated metrics
     all_metrics = []
@@ -95,29 +96,39 @@ def run_walkforward_pipeline(
 
         # 2b. Compute indicators on test set with best params
         df = test_data.copy()
+        df_train = train_data.copy()
         for ind, params in best_params.items():
             df = add_indicator(df, ind, **params)
+            df_train = add_indicator(df_train, ind, **params)
 
         # 2c. Generate signals
-        signals = {}
-        signals['rsi'] = generate_rsi_signal(df, column='RSI', lower=30, upper=70)
-        signals['macd'] = generate_macd_signal(df)
-        signals['bb'] = generate_bollinger_signal(df, column='BollingerBands', lower=-1, upper=1)
-        signals['vol'] = generate_volatility_signal(df, column='Volatility')
+        signals_test = {}
+        signals_test['rsi'] = generate_rsi_signal(df, column='RSI', lower=30, upper=70)
+        signals_test['macd'] = generate_macd_signal(df)
+        signals_test['bb'] = generate_bollinger_signal(df, column='BollingerBands', lower=-1, upper=1)
+        signals_test['vol'] = generate_volatility_signal(df, column='Volatility')
+
+        signals_train = {}
+        signals_train['rsi'] = generate_rsi_signal(df_train, column='RSI', lower=30, upper=70)
+        signals_train['macd'] = generate_macd_signal(df_train)
+        signals_train['bb'] = generate_bollinger_signal(df_train, column='BollingerBands', lower=-1, upper=1)
+        signals_train['vol'] = generate_volatility_signal(df_train, column='Volatility')
 
         # 2d. Regime detection (HMM)
-        X_ind = pd.DataFrame(signals)
-        model = fit_hmm_regimes(X_ind.values, n_states=2)
-        states, probs = predict_hmm_regimes(model, X_ind.values)
+        X_ind_train = pd.DataFrame(signals_train)
+        X_ind_test = pd.DataFrame(signals_test)
+        model = fit_hmm_regimes(X_ind_train.values, n_states=2)
+        train_states, _ = predict_hmm_regimes(model, X_ind_train.values)   # pseudo-labels for train
+        states, probs = predict_hmm_regimes(model, X_ind_test.values)
         df['regime_hmm'] = states
         # ML classifier on same features
-        clf, X_test, y_test = train_classifier(X_ind, states)
-        ml_preds = predict_classifier(clf, X_ind)
+        clf, X_test, y_test = train_classifier(X_ind_train, train_states)
+        ml_preds = predict_classifier(clf, X_ind_test)
         df['regime_ml'] = ml_preds
         ml_metrics = evaluate_classifier(states, ml_preds)
 
         # 2e. Combine signals with equal weights
-        composite = combine_signals(signals)
+        composite = combine_signals(signals_test)
 
         # 2f. Backtest composite strategy on test period
         results_df, metrics = backtest_strategy(close.iloc[test_idx], composite, transaction_cost)
@@ -150,45 +161,45 @@ def main():
 
         print(results[0].head())
         # === Cumulative PnL ===
-        # metrics["cum_pnl"] = (1 + metrics["total_return"]).cumprod()
+        metrics["cum_pnl"] = (1 + metrics["total_return"]).cumprod()
 
-        # # === Drawdown from simulated equity ===
-        # metrics["rolling_max"] = metrics["cum_pnl"].cummax()
-        # metrics["drawdown"] = metrics["cum_pnl"] / metrics["rolling_max"] - 1
-        # metrics["max_drawdown"] = metrics["drawdown"].expanding().min()
+        # === Drawdown from simulated equity ===
+        metrics["rolling_max"] = metrics["cum_pnl"].cummax()
+        metrics["drawdown"] = metrics["cum_pnl"] / metrics["rolling_max"] - 1
+        metrics["max_drawdown"] = metrics["drawdown"].expanding().min()
 
-        # # === Reconstruct full equity curve and return stream ===
-        # # Assumes per-window PnL starts where previous left off
-        # daily_returns = (1 + metrics["total_return"]).pow(1/63) - 1  # assume uniform return per day
-        # synthetic_daily = np.repeat(daily_returns.values, 63)  # simulate per-day return stream
+        # === Reconstruct full equity curve and return stream ===
+        # Assumes per-window PnL starts where previous left off
+        daily_returns = (1 + metrics["total_return"]).pow(1/63) - 1  # assume uniform return per day
+        synthetic_daily = np.repeat(daily_returns.values, 63)  # simulate per-day return stream
 
-        # # Sharpe and volatility from synthetic full stream
-        # synthetic_daily = pd.Series(synthetic_daily)
-        # agg_volatility = synthetic_daily.std() * np.sqrt(252)
-        # agg_sharpe = synthetic_daily.mean() / (synthetic_daily.std() + 1e-10) * np.sqrt(252)
+        # Sharpe and volatility from synthetic full stream
+        synthetic_daily = pd.Series(synthetic_daily)
+        agg_volatility = synthetic_daily.std() * np.sqrt(252)
+        agg_sharpe = synthetic_daily.mean() / (synthetic_daily.std() + 1e-10) * np.sqrt(252)
 
-        # # CAGR from overall cumulative return
-        # final_cum_return = metrics["cum_pnl"].iloc[-1]
-        # total_days = len(synthetic_daily)
-        # agg_cagr = (1 + final_cum_return) ** (252 / total_days) - 1
+        # CAGR from overall cumulative return
+        final_cum_return = metrics["cum_pnl"].iloc[-1]
+        total_days = len(synthetic_daily)
+        agg_cagr = (1 + final_cum_return) ** (252 / total_days) - 1
 
-        # # Final max drawdown
-        # agg_drawdown = metrics["drawdown"].min()
+        # Final max drawdown
+        agg_drawdown = metrics["drawdown"].min()
 
-        # # Aggregate others
-        # agg_trades = metrics["total_trades"].sum()
-        # agg_hit = np.average(metrics["hit_rate"].dropna(), weights=metrics["total_trades"] + 1e-10)
-        # agg_holding = np.average(metrics["avg_holding_period"], weights=metrics["total_trades"] + 1e-10)
+        # Aggregate others
+        agg_trades = metrics["total_trades"].sum()
+        agg_hit = np.average(metrics["hit_rate"].dropna(), weights=metrics["total_trades"] + 1e-10)
+        agg_holding = np.average(metrics["avg_holding_period"], weights=metrics["total_trades"] + 1e-10)
 
-        # logger.info("==== AGGREGATED PERFORMANCE METRICS ====")
-        # logger.info(f"Final Cumulative PnL     : {final_cum_return:.4f}")
-        # logger.info(f"Aggregated CAGR          : {agg_cagr:.4f}")
-        # logger.info(f"Aggregated Sharpe        : {agg_sharpe:.4f}")
-        # logger.info(f"Aggregated Volatility    : {agg_volatility:.4f}")
-        # logger.info(f"Aggregated Max Drawdown  : {agg_drawdown:.4f}")
-        # logger.info(f"Total Trades             : {agg_trades}")
-        # logger.info(f"Weighted Avg Hit Rate    : {agg_hit:.3f}")
-        # logger.info(f"Weighted Holding Period  : {agg_holding:.2f}")
+        logger.info("==== AGGREGATED PERFORMANCE METRICS ====")
+        logger.info(f"Final Cumulative PnL     : {final_cum_return:.4f}")
+        logger.info(f"Aggregated CAGR          : {agg_cagr:.4f}")
+        logger.info(f"Aggregated Sharpe        : {agg_sharpe:.4f}")
+        logger.info(f"Aggregated Volatility    : {agg_volatility:.4f}")
+        logger.info(f"Aggregated Max Drawdown  : {agg_drawdown:.4f}")
+        logger.info(f"Total Trades             : {agg_trades}")
+        logger.info(f"Weighted Avg Hit Rate    : {agg_hit:.3f}")
+        logger.info(f"Weighted Holding Period  : {agg_holding:.2f}")
 
 
 if __name__ == "__main__":
