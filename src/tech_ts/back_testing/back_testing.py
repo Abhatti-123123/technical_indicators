@@ -19,6 +19,8 @@ def backtest_strategy(prices, signals, transaction_cost=0.0, annualization=252):
     - pd.DataFrame: DataFrame with 'strategy_return' and 'cumulative_return'.
     - dict: Performance metrics.
     """
+    assert isinstance(prices, pd.Series), "prices must be a pandas Series"
+    assert isinstance(signals, pd.Series), "signals must be a pandas Series"
     # Compute period returns
     returns = prices.pct_change().fillna(0)
 
@@ -26,7 +28,7 @@ def backtest_strategy(prices, signals, transaction_cost=0.0, annualization=252):
     positions = signals.shift(1).fillna(0)
 
     # Transaction costs: cost when position changes
-    trades = positions.diff().abs()
+    trades = positions.diff().abs().fillna(0)
     cost = trades * transaction_cost
 
     # Strategy returns net of transaction costs

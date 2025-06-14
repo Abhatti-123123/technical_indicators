@@ -51,9 +51,10 @@ def run_walkforward_pipeline(
     """
     # 1. Fetch data
     prices = download_prices(tickers, start=start, end=end)
+    prices = prices.dropna()
     close = prices.iloc[:, 0]  # e.g., SPY by default
-    print(prices.index[-1])
-
+    print(close.index[0])
+    
     # Store aggregated metrics
     all_metrics = []
     results_list = []
@@ -117,11 +118,13 @@ def run_walkforward_pipeline(
         # 2d. Regime detection (HMM)
         X_ind_train = pd.DataFrame(signals_train)
         X_ind_test = pd.DataFrame(signals_test)
-        model = fit_hmm_regimes(X_ind_train.values, n_states=2)
+        model = fit_hmm_regimes(X_ind_train.values, n_states=3)
         train_states, _ = predict_hmm_regimes(model, X_ind_train.values)   # pseudo-labels for train
         states, probs = predict_hmm_regimes(model, X_ind_test.values)
         df['regime_hmm'] = states
         # ML classifier on same features
+        # print("Class distribution:", np.bincount(train_states))
+        # print("Unique classes:", np.unique(train_states, return_counts=True))
         clf, X_test, y_test = train_classifier(X_ind_train, train_states)
         ml_preds = predict_classifier(clf, X_ind_test)
         df['regime_ml'] = ml_preds
@@ -148,7 +151,8 @@ def run_walkforward_pipeline(
     # Aggregate metrics into DataFrame
     metrics_df = pd.DataFrame(all_metrics)
     metrics_df.set_index('window_start', inplace=True)
-    return results_list, metrics_df
+    all_results = pd.concat(results_list)
+    return all_results, metrics_df
 
 
 def main():
@@ -157,34 +161,30 @@ def main():
     for ticker in TICKERS:
         logger.info(f"\n===== Running walkforward for {ticker} =====")
         results, metrics = run_walkforward_pipeline(tickers=[ticker])  # note: pass as list
-
-
-        print(results[0].head())
+        print(results.head(20))
+        print(results[results['strategy_return'].isna()].index)
         # === Cumulative PnL ===
-        metrics["cum_pnl"] = (1 + metrics["total_return"]).cumprod()
+        results["cum_pnl"] = (1 + results["strategy_return"]).cumprod()
 
         # === Drawdown from simulated equity ===
-        metrics["rolling_max"] = metrics["cum_pnl"].cummax()
-        metrics["drawdown"] = metrics["cum_pnl"] / metrics["rolling_max"] - 1
-        metrics["max_drawdown"] = metrics["drawdown"].expanding().min()
+        results["rolling_max"] = results["cum_pnl"].cummax()
+        results["drawdown"] = results["cum_pnl"] / results["rolling_max"] - 1
+        results["max_drawdown"] = results["drawdown"].expanding().min()
 
         # === Reconstruct full equity curve and return stream ===
         # Assumes per-window PnL starts where previous left off
-        daily_returns = (1 + metrics["total_return"]).pow(1/63) - 1  # assume uniform return per day
-        synthetic_daily = np.repeat(daily_returns.values, 63)  # simulate per-day return stream
+        daily_returns = results["strategy_return"]  # assume uniform return per day
 
-        # Sharpe and volatility from synthetic full stream
-        synthetic_daily = pd.Series(synthetic_daily)
-        agg_volatility = synthetic_daily.std() * np.sqrt(252)
-        agg_sharpe = synthetic_daily.mean() / (synthetic_daily.std() + 1e-10) * np.sqrt(252)
+        agg_volatility = daily_returns.std() * np.sqrt(252)
+        agg_sharpe = daily_returns.mean() / (daily_returns.std() + 1e-10) * np.sqrt(252)
 
         # CAGR from overall cumulative return
-        final_cum_return = metrics["cum_pnl"].iloc[-1]
-        total_days = len(synthetic_daily)
+        final_cum_return = results["cum_pnl"].iloc[-1]
+        total_days = len(daily_returns)
         agg_cagr = (1 + final_cum_return) ** (252 / total_days) - 1
 
         # Final max drawdown
-        agg_drawdown = metrics["drawdown"].min()
+        agg_drawdown = results["drawdown"].min()
 
         # Aggregate others
         agg_trades = metrics["total_trades"].sum()
@@ -200,6 +200,26 @@ def main():
         logger.info(f"Total Trades             : {agg_trades}")
         logger.info(f"Weighted Avg Hit Rate    : {agg_hit:.3f}")
         logger.info(f"Weighted Holding Period  : {agg_holding:.2f}")
+
+        # Plot Cumulative Metrics
+        plt.figure(figsize=(12, 6))
+        plt.plot(results.index, results["cum_pnl"], label="cum_pnl", color='blue')
+        plt.plot(results.index, results["drawdown"], label="drawdown", color='orange')
+        # metrics["cum_sharpe"] = metrics["total_return"].expanding().mean() / (metrics["total_return"].expanding().std() + 1e-10) * np.sqrt(252)
+        # plt.plot(metrics.index, metrics["cum_sharpe"], label="cum_sharpe", color='green')
+
+        plt.title(f"{ticker}: Cumulative Metrics")
+        plt.xlabel("window_start")
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+
+        # Save the plot
+        plot_path = Path(f"metrics_{ticker}_plot.png")
+        plt.savefig(plot_path)
+        logger.info(f"Saved plot to {plot_path}")
+
+        metrics.to_csv(f"walkforward_metrics_{ticker}.csv")
 
 
 if __name__ == "__main__":

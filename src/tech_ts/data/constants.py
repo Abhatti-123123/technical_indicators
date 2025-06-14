@@ -1,4 +1,5 @@
 # constants.py
-
-# TICKERS = ['SOXX', 'XLF', 'XLV', 'XLRE', 'GDX', 'GUSH', 'FDN']
-TICKERS = ['SOXX', 'QQQ', 'SMH']
+# GUSH
+# TICKERS = ['GUSH']
+TICKERS = ['SOXX', 'QQQ', 'SMH', 'XLF', 'XLV', 'XLRE', 'GDX', 'FDN']
+# TICKERS = ['SOXX']
