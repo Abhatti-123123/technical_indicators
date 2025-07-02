@@ -53,14 +53,14 @@ def generate_volatility_signal(df, column='Volatility', threshold=None):
     """
     Generate volatility-based regime signals:
     - High volatility (1) when vol > threshold
-    - Low volatility (0) otherwise
+    - Low volatility (-1) otherwise
 
     If threshold is None, use median volatility.
     """
     vol = df[column]
     if threshold is None:
         threshold = vol.median()
-    signal = pd.Series(0, index=df.index)
+    signal = pd.Series(-1, index=df.index)
     signal[vol > threshold] = 1
     return signal
 

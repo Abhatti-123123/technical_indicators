@@ -4,9 +4,12 @@ import matplotlib
 matplotlib.use("Agg")  # Use non-interactive backend to avoid GUI thread errors
 import matplotlib.pyplot as plt
 import logging
+import scipy.stats as ss
+from sklearn.linear_model import Ridge
+from pathlib import Path
 
 from tech_ts.data.fetch_data import download_prices
-from tech_ts.data.constants    import TICKERS
+from tech_ts.data.constants    import TICKERS, INDICATOR_LIST
 from tech_ts.data.date_config  import START_DATE, END_DATE
 from tech_ts.indicators.indicators import add_indicator
 from tech_ts.signal_generation.signal_generation import (
@@ -16,19 +19,89 @@ from tech_ts.signal_generation.signal_generation import (
     generate_volatility_signal,
     combine_signals
 )
-from tech_ts.regime_detection.regime_detection import fit_hmm_regimes, predict_hmm_regimes
+from tech_ts.regime_detection.regime_detection import fit_hmm_returns, predict_hmm
+from tech_ts.regime_detection.regime_utils import forward_return, calc_regime_weights, apply_weights
 from tech_ts.regime_detection.ml_classifier import train_classifier, predict_classifier, evaluate_classifier
 from tech_ts.parameter_tuning.rolling_tuning import rolling_parameter_tuning
 from tech_ts.back_testing.back_testing import backtest_strategy
+from tech_ts.preprocessing.stationarity_tools import (
+    stationarity_report, force_stationary
+)
+
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+import warnings
+import logging
+from scipy.stats import ConstantInputWarning            # for SciPy IC warnings
+from sklearn.exceptions import ConvergenceWarning       # if sklearn is in the stack
+
+# ────────────────────────────────────────────────────────────────
+# 1.  Silence hmmlearn-specific warnings
+# ────────────────────────────────────────────────────────────────
+warnings.filterwarnings(
+    "ignore",
+    message=r".*Model is not converging.*"
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r".*rows of transmat_ have zero sum.*"
+)
+
+# ────────────────────────────────────────────────────────────────
+# 2.  Silence SciPy’s “ConstantInputWarning” from Spearman IC
+# ────────────────────────────────────────────────────────────────
+warnings.filterwarnings(
+    "ignore",
+    category=ConstantInputWarning
+)
+
+# ────────────────────────────────────────────────────────────────
+# 3.  (Optional) silence generic convergence warnings
+# ────────────────────────────────────────────────────────────────
+warnings.filterwarnings(
+    "ignore",
+    category=ConvergenceWarning
+)
+
+# ────────────────────────────────────────────────────────────────
+# 4.  Turn down hmmlearn’s own logger to ERROR
+# ────────────────────────────────────────────────────────────────
+logging.getLogger("hmmlearn").setLevel(logging.ERROR)
+
+# def _safe_spearman(a, b):
+#     if np.all(a == a[0]) or np.all(b == b[0]):   # constant check
+#         return 0.0
+#     return ss.spearmanr(a, b)[0] or 0.0
+
+
+# # ---------- forward-return ----------
+# def calc_forward_return(prices, horizon):
+#     """Simple pct-change over 'horizon' days."""
+#     return prices.pct_change(periods=horizon).shift(-horizon)
+
+# ---------- median holding period ----------
+def estimate_median_holding(signals_dict):
+    """
+    Crude estimate: average length (in bars) between signal direction changes.
+    Returns int >=1.
+    """
+    lengths = []
+    for sig in signals_dict.values():
+        flips = (np.sign(sig).diff() != 0).astype(int)
+        seg_lens = np.diff(np.flatnonzero(np.append(flips.values, 1)))
+        if len(seg_lens):
+            lengths.append(np.median(seg_lens))
+    return int(max(1, np.median(lengths))) if lengths else 1
 
 # -----------------------------------------
 # Walk-Forward Backtesting Orchestration
 # -----------------------------------------
 
+
 def run_walkforward_pipeline(
+    vix,
+    vxv,
     tickers=TICKERS,
     start=START_DATE,
     end=END_DATE,
@@ -55,6 +128,9 @@ def run_walkforward_pipeline(
     close = prices.iloc[:, 0]  # e.g., SPY by default
     print(close.index[0])
     
+    vix_df = pd.concat([vix, vxv], axis=1).reindex(close.index).ffill()
+    vix_df["VIX_ratio"] = vix_df["VIX"] / vix_df["VXV"]
+
     # Store aggregated metrics
     all_metrics = []
     results_list = []
@@ -62,19 +138,39 @@ def run_walkforward_pipeline(
     n = len(close)
     start_idx = 0
 
+    close_new = close.to_frame(name='Close')
+    for ind in INDICATOR_LIST:
+        close_new = add_indicator(close_new, ind)\
+    
+    indicators_raw = close_new.drop(columns="Close")
+
+    OUTDIR = Path("stationarity")
+    OUTDIR.mkdir(exist_ok=True)
+    
+    # 1.  Write a one-off CSV report (good for PR / tracking)
+    stationarity_report(indicators_raw).to_csv(f"{OUTDIR}/stationarity_pre_{tickers[0]}.csv")
+
+    # 2.  Transform to stationarity – example: log-diff Volatility only
+    indicators = force_stationary(indicators_raw, force_log=['Volatility'])
+
+    # 3.  Save post-check report
+    stationarity_report(indicators).to_csv(f"{OUTDIR}/stationarity_post_{tickers[0]}.csv")
+
     while start_idx + window_size + test_size <= n:
         # Define indices for train and test
         train_idx = range(start_idx, start_idx + window_size)
         test_idx = range(start_idx + window_size, start_idx + window_size + test_size)
+        full_idx = range(0, start_idx + window_size)
 
         train_data = close.iloc[train_idx].to_frame(name='Close')
         test_data = close.iloc[test_idx].to_frame(name='Close')
+        data_full = close.iloc[full_idx].to_frame(name='Close')
 
         # 2a. Tune parameters for each indicator on train set
         param_grids = {
             'RSI': {'window': [10, 14, 20]},
             'MACD': {'fast': [10,12], 'slow': [26,30], 'signal': [9]},
-            'BollingerBands': {'window': [20, 30]},
+            # 'BollingerBands': {'window': [20, 30]},
             'Volatility': {'window': [10, 20]}
         }
         best_params = {}
@@ -98,47 +194,84 @@ def run_walkforward_pipeline(
         # 2b. Compute indicators on test set with best params
         df = test_data.copy()
         df_train = train_data.copy()
+        df_full = data_full.copy()
         for ind, params in best_params.items():
             df = add_indicator(df, ind, **params)
             df_train = add_indicator(df_train, ind, **params)
+            df_full = add_indicator(df_full, ind, **params)
+
+        indicators_raw = df_train.drop(columns="Close")
 
         # 2c. Generate signals
         signals_test = {}
         signals_test['rsi'] = generate_rsi_signal(df, column='RSI', lower=30, upper=70)
         signals_test['macd'] = generate_macd_signal(df)
-        signals_test['bb'] = generate_bollinger_signal(df, column='BollingerBands', lower=-1, upper=1)
+        # signals_test['bb'] = generate_bollinger_signal(df, column='BollingerBands', lower=-1, upper=1)
         signals_test['vol'] = generate_volatility_signal(df, column='Volatility')
 
         signals_train = {}
         signals_train['rsi'] = generate_rsi_signal(df_train, column='RSI', lower=30, upper=70)
         signals_train['macd'] = generate_macd_signal(df_train)
-        signals_train['bb'] = generate_bollinger_signal(df_train, column='BollingerBands', lower=-1, upper=1)
+        # signals_train['bb'] = generate_bollinger_signal(df_train, column='BollingerBands', lower=-1, upper=1)
         signals_train['vol'] = generate_volatility_signal(df_train, column='Volatility')
 
-        # 2d. Regime detection (HMM)
-        X_ind_train = pd.DataFrame(signals_train)
-        X_ind_test = pd.DataFrame(signals_test)
-        model = fit_hmm_regimes(X_ind_train.values, n_states=3)
-        train_states, _ = predict_hmm_regimes(model, X_ind_train.values)   # pseudo-labels for train
-        states, probs = predict_hmm_regimes(model, X_ind_test.values)
-        df['regime_hmm'] = states
-        # ML classifier on same features
-        # print("Class distribution:", np.bincount(train_states))
-        # print("Unique classes:", np.unique(train_states, return_counts=True))
-        clf, X_test, y_test = train_classifier(X_ind_train, train_states)
-        ml_preds = predict_classifier(clf, X_ind_test)
-        df['regime_ml'] = ml_preds
-        ml_metrics = evaluate_classifier(states, ml_preds)
+        signals_full = {}
+        signals_full['rsi'] = generate_rsi_signal(df_full, column='RSI', lower=30, upper=70)
+        signals_full['macd'] = generate_macd_signal(df_full)
+        # signals_train['bb'] = generate_bollinger_signal(df_train, column='BollingerBands', lower=-1, upper=1)
+        signals_full['vol'] = generate_volatility_signal(df_full, column='Volatility')
+
+         # --- Regime Detection using HMM on multi-features ---
+        # Build feature DataFrames for HMM input
+        def build_feats(series: pd.Series) -> pd.DataFrame:
+            ret = series.pct_change().fillna(0)
+            vol5 = series.pct_change().rolling(5).std().fillna(0)
+            vol21= series.pct_change().rolling(21).std().fillna(0)
+            vix_pct = vix_df['VIX'].pct_change().reindex(series.index).fillna(0)
+            ratio  = vix_df['VIX_ratio'].reindex(series.index).fillna(1)
+            return pd.concat([ret.rename('ret'), vol5.rename('vol5'), vol21.rename('vol21'),
+                              vix_pct.rename('dVIX'), ratio.rename('VIX_ratio')], axis=1)
+
+        feats_train = build_feats(train_data['Close'])
+        feats_test  = build_feats(test_data['Close'])
+        feats_full = build_feats(data_full['Close'])
+
+        # Fit HMM and predict regimes
+        hmm_model = fit_hmm_returns(feats_full, n_states=3)
+        reg_train, _ = predict_hmm(hmm_model, feats_full)
+        reg_test,  _ = predict_hmm(hmm_model, feats_test)
+
+        reg_train = pd.Series(reg_train, index=feats_full.index, name="regime")
+        reg_train = reg_train.reindex(train_data.index)
+
+        reg_train = pd.Series(reg_train, index=train_data.index)
+        reg_test  = pd.Series(reg_test,  index=test_data.index)
+
+        # Build z-scored signal matrices for weight calculation
+        sig_cols = ['rsi','macd', 'vol']
+        Xtrain = pd.DataFrame({c: signals_train[c] for c in sig_cols}, index=train_data.index)
+        Xtest  = pd.DataFrame({c: signals_test[c]  for c in sig_cols}, index=test_data.index)
+        mu, sigma = Xtrain.mean(), Xtrain.std().replace(0,1e-12)
+        Xtrain = (Xtrain - mu)/sigma
+        Xtest  = (Xtest  - mu)/sigma
+
+        # >>> 3.  Forward target & regime weights <<<
+        horizon   = estimate_median_holding(signals_train)                     # pick what matches your avg holding
+        fwd_ret   = forward_return(train_data['Close'], horizon)
+        w_dict    = calc_regime_weights(Xtrain, fwd_ret, reg_train)
+
+        # >>> 4.  Composite position series for TEST <<<
+        composite = apply_weights(Xtest, reg_test, w_dict)
 
         # 2e. Combine signals with equal weights
-        composite = combine_signals(signals_test)
+        # composite = combine_signals(signals_test)
 
         # 2f. Backtest composite strategy on test period
         results_df, metrics = backtest_strategy(close.iloc[test_idx], composite, transaction_cost)
-        metrics.update(
-            {'hmm_accuracy': np.mean(probs.argmax(axis=1) == states),
-             'ml_accuracy': ml_metrics['accuracy']}
-        )
+        # metrics.update(
+        #     {'hmm_accuracy': np.mean(probs.argmax(axis=1) == states),
+        #      'ml_accuracy': ml_metrics['accuracy']}
+        # )
 
         win_start = close.index[test_idx][0]
         metrics['window_start'] = win_start
@@ -152,17 +285,23 @@ def run_walkforward_pipeline(
     metrics_df = pd.DataFrame(all_metrics)
     metrics_df.set_index('window_start', inplace=True)
     all_results = pd.concat(results_list)
+    all_results = all_results[~all_results.index.duplicated(keep="first")]  # kill exact dupes
     return all_results, metrics_df
 
 
 def main():
-    from pathlib import Path
+
+    # Fetch VIX & VXV once for full period
+    vix = download_prices(["^VIX"], start=START_DATE, end=END_DATE).squeeze("columns").rename("VIX")
+    vxv = download_prices(["^VXV"], start=START_DATE, end=END_DATE).squeeze("columns").rename("VXV")
 
     for ticker in TICKERS:
         logger.info(f"\n===== Running walkforward for {ticker} =====")
-        results, metrics = run_walkforward_pipeline(tickers=[ticker])  # note: pass as list
-        print(results.head(20))
-        print(results[results['strategy_return'].isna()].index)
+        results, metrics = run_walkforward_pipeline(vix=vix, vxv=vxv, tickers=[ticker])  # note: pass as list
+        dupes = results.index[results.index.duplicated()]
+        print("Duplicate timestamps:", len(dupes))
+        assert results.index.to_series().diff().dt.days.mode().iloc[0] == 1, \
+       "daily_returns is NOT daily – drop the √252 if this fails"
         # === Cumulative PnL ===
         results["cum_pnl"] = (1 + results["strategy_return"]).cumprod()
 
@@ -186,10 +325,25 @@ def main():
         # Final max drawdown
         agg_drawdown = results["drawdown"].min()
 
+        print(f"{ticker}  | 99-pctile abs return:", results["strategy_return"].abs().quantile(0.99))
+
         # Aggregate others
         agg_trades = metrics["total_trades"].sum()
-        agg_hit = np.average(metrics["hit_rate"].dropna(), weights=metrics["total_trades"] + 1e-10)
-        agg_holding = np.average(metrics["avg_holding_period"], weights=metrics["total_trades"] + 1e-10)
+        # ── Filter out useless windows (zero trades or NaNs) ──────────────────────────
+        mask = (
+            (metrics["total_trades"] > 0) &                  # traded at least once
+            metrics["hit_rate"].notna() &
+            metrics["avg_holding_period"].notna()
+        )
+
+        if not mask.any():          # nothing to aggregate – bail early
+            agg_hit, agg_holding = np.nan, np.nan
+        else:
+            w = metrics.loc[mask, "total_trades"].to_numpy()
+            assert w.sum() > 0, "All weights are zero – cannot compute weighted average."
+
+            agg_hit     = np.average(metrics.loc[mask, "hit_rate"].to_numpy(),          weights=w)
+            agg_holding = np.average(metrics.loc[mask, "avg_holding_period"].to_numpy(),weights=w)
 
         logger.info("==== AGGREGATED PERFORMANCE METRICS ====")
         logger.info(f"Final Cumulative PnL     : {final_cum_return:.4f}")
@@ -215,11 +369,18 @@ def main():
         plt.tight_layout()
 
         # Save the plot
-        plot_path = Path(f"metrics_{ticker}_plot.png")
+        # Where this script lives
+        here = Path(__file__).resolve().parent
+
+        # Go two levels up
+        root = here.parent.parent          # same as here.parents[1] if you prefer
+        plot_path = root / f"metrics_{ticker}_plot.png"
+        csv_path = root / f"walkforward_metrics_{ticker}.csv"
+        results_path = root / f"results_{ticker}.csv"
         plt.savefig(plot_path)
         logger.info(f"Saved plot to {plot_path}")
-
-        metrics.to_csv(f"walkforward_metrics_{ticker}.csv")
+        results.to_csv(results_path)
+        metrics.to_csv(csv_path)
 
 
 if __name__ == "__main__":

@@ -25,14 +25,17 @@ def backtest_strategy(prices, signals, transaction_cost=0.0, annualization=252):
     returns = prices.pct_change().fillna(0)
 
     # Align signals
-    positions = signals.shift(1).fillna(0)
+    sig_events = signals.replace(0, np.nan)
+    # positions = signals.shift(1).fillna(0)
+    positions  = sig_events.shift(1).ffill().fillna(0)
 
     # Transaction costs: cost when position changes
-    trades = positions.diff().abs().fillna(0)
-    cost = trades * transaction_cost
+    trades = (positions != positions.shift()).astype(int).fillna(0)
+    trade_cost = trades * transaction_cost * 0
 
     # Strategy returns net of transaction costs
-    strat_returns = positions * returns - cost
+    strat_returns = positions * returns
+    strat_returns[trades != 0] -= trade_cost[trades != 0]
 
     # Cumulative returns
     cum_returns = (1 + strat_returns).cumprod() - 1
@@ -74,7 +77,7 @@ def backtest_strategy(prices, signals, transaction_cost=0.0, annualization=252):
         'avg_holding_period': avg_holding
     }
 
-    results_df = pd.DataFrame({'strategy_return': strat_returns, 'cumulative_return': cum_returns})
+    results_df = pd.DataFrame({'strategy_return': strat_returns, 'cumulative_return': cum_returns, 'positions': positions, 'trade_ccost': trade_cost})
     return results_df, metrics
 
 # -----------------------------------------

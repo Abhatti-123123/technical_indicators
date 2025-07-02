@@ -1,0 +1,6 @@
+series,adf_p,kpss_p,is_stationary
+RSI,2.8696813614192546e-23,0.1,True
+MACD_1,2.6109132847588087e-24,0.1,True
+MACD_2,9.470530520644957e-26,0.1,True
+BollingerBands,9.47656740018161e-30,0.1,True
+Volatility,0.0,0.1,True

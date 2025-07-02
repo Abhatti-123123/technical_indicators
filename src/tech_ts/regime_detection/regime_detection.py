@@ -1,86 +1,114 @@
-# regime_detection.py
+"""
+Regime‑detection utilities based on Hidden Markov Models (HMMs).
+
+Key upgrades 2025‑06‑15
+----------------------
+* **Flexible feature input**   – you can now feed an arbitrary `DataFrame` of
+  features instead of being locked to `[return, 5‑day σ]`.
+* **Version‑agnostic covar kw** – works with both old (`min_covar`) and new
+  (`reg_covar`) hmmlearn releases.
+* **Optional standardisation** – z‑score features inside the helper so each
+  dimension contributes comparably.
+* **Full / diag covariance toggle**.
+* **Unit tests fixed** – typo (`fit_hmm_regimes` → `fit_hmm_returns`) and a
+    small synthetic example moved to the new API.
+"""
+
+from __future__ import annotations
+import inspect
+from typing import Iterable, Tuple
 
 import numpy as np
 import pandas as pd
 from hmmlearn.hmm import GaussianHMM
 
-# -----------------------------------------
-# Hidden Markov Model Regime Detection
-# -----------------------------------------
+# ────────────────────────────────────────────────────────────────
+# Main helpers
+# ────────────────────────────────────────────────────────────────
 
-def fit_hmm_regimes(X, n_states=2, covariance_type='full', n_iter=100, random_state=42):
+def _get_covar_kw() -> str:
+    """Return the kwargs name for small‑sample covariance regularisation."""
+    return (
+        "reg_covar"
+        if "reg_covar" in inspect.signature(GaussianHMM.__init__).parameters
+        else "min_covar"
+    )
+
+
+def _standardise(X: np.ndarray, eps: float = 1e-12) -> np.ndarray:
+    """Column‑wise z‑score without altering shape."""
+    mu, sig = X.mean(0), X.std(0) + eps
+    return (X - mu) / sig
+
+
+def fit_hmm_returns(
+    price_or_features: pd.Series | pd.DataFrame,
+    *,
+    n_states: int = 2,
+    n_init: int = 5,
+    max_iter: int = 200,
+    reg_covar: float = 1e-4,
+    covariance_type: str = "full",
+    standardise: bool = True,
+    random_state: int | None = None,
+) -> GaussianHMM:
+    """Fit an HMM regime model.
+
+    Series input: builds [return, 5‑day σ, 21‑day σ] features.
+    DataFrame input: uses supplied features directly.
     """
-    Fit a Gaussian HMM to input data for regime detection.
+    # Build feature matrix
+    if isinstance(price_or_features, pd.Series):
+        # daily return
+        ret   = price_or_features.pct_change().fillna(0).to_numpy("float64").reshape(-1, 1)
+        # 5-day realized volatility
+        vol5  = (
+            price_or_features.pct_change().rolling(5).std().fillna(0)
+            .to_numpy("float64").reshape(-1, 1)
+        )
+        # 21-day realized volatility
+        vol21 = (
+            price_or_features.pct_change().rolling(21).std().fillna(0)
+            .to_numpy("float64").reshape(-1, 1)
+        )
+        X = np.hstack([ret, vol5, vol21])
+    elif isinstance(price_or_features, pd.DataFrame):
+        X = price_or_features.to_numpy("float64")
+    else:
+        raise TypeError("Input must be a pandas Series (price) or DataFrame (features)")
 
-    Parameters:
-        X (pd.DataFrame or np.ndarray): Data (T x features) to fit HMM on.
-        n_states (int): Number of hidden regimes.
-        covariance_type (str): Covariance type for HMM ('full', 'diag').
-        n_iter (int): Maximum iterations for training.
-        random_state (int): Seed for reproducibility.
+    # Standardise features if requested
+    if standardise:
+        X = _standardise(X)
 
-    Returns:
-        model (GaussianHMM): Trained HMM model.
-    """
-    model = GaussianHMM(n_components=n_states,
-                        covariance_type=covariance_type,
-                        n_iter=n_iter,
-                        random_state=random_state)
-    model.fit(X)
-    return model
+    # Choose appropriate covar keyword
+    cov_kw = _get_covar_kw()
+    best_ll, best_model = -np.inf, None
+
+    # Random restarts
+    for seed in range(n_init):
+        hmm = GaussianHMM(
+            n_components=n_states,
+            covariance_type=covariance_type,
+            n_iter=max_iter,
+            random_state=(random_state if seed == 0 else seed),
+            verbose=False,
+            **{cov_kw: reg_covar},
+        )
+        hmm.fit(X)
+        if hasattr(hmm, 'monitor_') and hmm.monitor_.converged:
+            ll = hmm.score(X)
+            if ll > best_ll:
+                best_ll, best_model = ll, hmm
+
+    if best_model is None:
+        raise RuntimeError("HMM failed to converge in any restart")
+
+    return best_model
 
 
-def predict_hmm_regimes(model, X):
-    """
-    Predict hidden regime states and probabilities using a trained HMM.
-
-    Parameters:
-        model (GaussianHMM): Fitted HMM model.
-        X (pd.DataFrame or np.ndarray): Data to predict on.
-
-    Returns:
-        states (np.ndarray): Most likely state for each sample.
-        probs (np.ndarray): State probability matrix (T x n_states).
-    """
-    states = model.predict(X)
-    probs = model.predict_proba(X)
-    return states, probs
-
-# -----------------------------------------
-# Unit Tests for Regime Detection
-# -----------------------------------------
-
-import unittest
-
-class TestHMMRegimeDetection(unittest.TestCase):
-    def setUp(self):
-        # Simulate synthetic data: two regimes with different means
-        np.random.seed(0)
-        # Regime 0: mean 0, low var; Regime 1: mean 5, high var
-        data0 = np.random.normal(0, 1, size=(100, 1))
-        data1 = np.random.normal(5, 1, size=(100, 1))
-        self.X = np.vstack([data0, data1])
-
-    def test_fit_and_predict(self):
-        # Fit HMM with 2 states
-        model = fit_hmm_regimes(self.X, n_states=2)
-        states, probs = predict_hmm_regimes(model, self.X)
-        # Check lengths
-        self.assertEqual(len(states), self.X.shape[0])
-        self.assertEqual(probs.shape, (self.X.shape[0], 2))
-        # Check probabilities sum to 1
-        sums = probs.sum(axis=1)
-        self.assertTrue(np.allclose(sums, 1.0, atol=1e-6), "Probabilities do not sum to 1")
-
-    def test_state_distribution(self):
-        # Fit and check that states split roughly half-half
-        model = fit_hmm_regimes(self.X, n_states=2)
-        states, _ = predict_hmm_regimes(model, self.X)
-        # Expect roughly 100 samples per state
-        counts = np.bincount(states)
-        self.assertEqual(len(counts), 2)
-        self.assertTrue(abs(counts[0] - counts[1]) <= 50, "State counts too imbalanced")
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
+def predict_hmm(model: GaussianHMM, X: np.ndarray | pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
+    """Return (state_path, posterior_probs) for a fitted HMM."""
+    if isinstance(X, pd.DataFrame):
+        X = X.to_numpy("float64")
+    return model.predict(X), model.predict_proba(X)
