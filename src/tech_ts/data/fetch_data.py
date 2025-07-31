@@ -6,7 +6,7 @@ from tech_ts.data.constants import TICKERS
 from tech_ts.data.date_config import START_DATE, END_DATE
 
 def download_prices(tickers=TICKERS, start=START_DATE, end=END_DATE):
-    data = yf.download(tickers, start=start, end=end, auto_adjust=True)['Close']
+    data = yf.download(tickers, start=start, end=end, auto_adjust=True, threads=False, progress=False)['Close']
     data.dropna(inplace=True)
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(1)

@@ -31,7 +31,7 @@ def backtest_strategy(prices, signals, transaction_cost=0.0, annualization=252):
 
     # Transaction costs: cost when position changes
     trades = (positions != positions.shift()).astype(int).fillna(0)
-    trade_cost = trades * transaction_cost * 0
+    trade_cost = trades * transaction_cost
 
     # Strategy returns net of transaction costs
     strat_returns = positions * returns
@@ -50,9 +50,15 @@ def backtest_strategy(prices, signals, transaction_cost=0.0, annualization=252):
     # Sharpe ratio (assume risk-free ~0)
     sharpe = strat_returns.mean() / (strat_returns.std() + 1e-10) * np.sqrt(annualization)
     # Max drawdown
-    running_max = cum_returns.cummax()
-    drawdown = cum_returns - running_max
+    # running_max = cum_returns.cummax()
+    # drawdown = cum_returns - running_max
+    # max_drawdown = drawdown.min()
+
+    equity_curve = (1 + strat_returns).cumprod()
+    running_max = equity_curve.cummax()
+    drawdown = equity_curve / running_max - 1
     max_drawdown = drawdown.min()
+    
     # Total trades
     total_trades = int(trades.sum())
     # Hit rate: fraction of positive strategy returns when in market (positions !=0)

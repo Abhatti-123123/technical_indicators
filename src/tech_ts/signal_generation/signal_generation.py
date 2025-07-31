@@ -1,5 +1,8 @@
 import pandas as pd
 import numpy as np
+from sklearn.preprocessing import PolynomialFeatures, StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
 
 # -----------------------------------------
 # Signal Generation Functions
@@ -83,6 +86,45 @@ def combine_signals(signals_dict, weights=None):
     weighted_sum = sum(df_signals[col] * weights.get(col, 0) for col in df_signals.columns)
     composite = np.sign(weighted_sum).fillna(0)
     return composite
+
+
+# ------------------------------------------------------------------
+#  Train a reg-regularised logit on sign-of-forward-return
+# ------------------------------------------------------------------
+def train_nonlinear_weighter(X: pd.DataFrame,
+                             fwd_ret: pd.Series,
+                             degree: int = 2,
+                             C: float   = 0.1):
+    """
+    X        : z-scored indicator signals (rows = dates, cols = indicators)
+    fwd_ret  : forward % return aligned with X.index
+    returns  : fitted sklearn Pipeline
+    """
+    y = (fwd_ret > 0).astype(int)               # binary ↑ / ↓
+    pipe = Pipeline([
+        ("poly", PolynomialFeatures(degree=degree, include_bias=False)),
+        ("scaler", StandardScaler(with_mean=False)),  # keep sparsity sign
+        ("logit", LogisticRegression(penalty="l2",
+                                     C=C,
+                                     max_iter=500,
+                                     solver="lbfgs"))
+    ])
+    pipe.fit(X.values, y.values)
+    return pipe
+
+
+def score_to_position(proba: np.ndarray,
+                      thresh: float = 0.3) -> np.ndarray:
+    """
+    proba  : model.predict_proba()[:, 1]  (P(↑))
+    thresh : trade only when conviction > thresh
+    returns: +1 / 0 / –1 vector
+    """
+    score = 2 * proba - 1                     # map [0,1] → [-1,+1]
+    pos   = np.zeros_like(score, dtype=int)
+    pos[ score >=  thresh] =  1
+    pos[ score <= -thresh] = 0
+    return pos
 
 # -----------------------------------------
 # Unit Tests for Signal Generation

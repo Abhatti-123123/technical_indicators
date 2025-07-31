@@ -49,7 +49,7 @@ def apply_weights(
         signal_df: pd.DataFrame,
         regime: pd.Series,
         weight_dict: dict,
-        thresh: float = 0.7
+        thresh: float = 0.3
 ) -> pd.Series:
     """
     • Dot-product signals with their regime-specific weights.
@@ -71,5 +71,5 @@ def apply_weights(
 
     pos = pd.Series(0, index=signal_df.index)
     pos[ score >=  thresh] =  1
-    pos[ score <= -thresh] = -1
+    pos[ score <= -thresh] = 0
     return pos
