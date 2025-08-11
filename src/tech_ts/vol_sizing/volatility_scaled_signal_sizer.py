@@ -65,7 +65,7 @@ class VolatilityScaledSignalSizer:
 
         # raw leverage and caps
         raw_leverage = target_vol / safe_sigma_fast
-        leverage = min(raw_leverage, self.max_leverage)
+        leverage = min(raw_leverage, self.max_leverage) 
 
         # optional smoothing
         if self.leverage_smoothing_alpha is not None:
@@ -80,4 +80,4 @@ class VolatilityScaledSignalSizer:
 
         # apply to base position and enforce absolute cap
         scaled = base_pos * leverage
-        return max(-self.max_leverage, min(self.max_leverage, scaled))
+        return max(0, min(self.max_leverage, scaled))

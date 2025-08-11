@@ -1,4 +1,6 @@
 /data/
 __pycache__/
 *.pyc
+*.png
+*.csv
 tech_ts.egg-info/

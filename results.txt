@@ -1,0 +1,131 @@
+Results:
+With transaction cost of 0.001 subtracted from return on every 1 unit trade (Which is quite large for these liquid etfs)
+(Strategy seems to be working with good sharpe, can be leveraged for higher cagr)
+
+SOXX  | 99-pctile abs return: 0.04194988571181776
+2025-08-05 16:34:30,809 INFO ==== AGGREGATED PERFORMANCE METRICS ====
+2025-08-05 16:34:30,809 INFO Final Cumulative PnL     : 1.4154
+2025-08-05 16:34:30,809 INFO Aggregated CAGR          : 0.0242
+2025-08-05 16:34:30,809 INFO Aggregated Sharpe        : 0.2275
+2025-08-05 16:34:30,809 INFO Aggregated Volatility    : 0.1638
+2025-08-05 16:34:30,809 INFO Aggregated Max Drawdown  : -0.3669
+2025-08-05 16:34:30,809 INFO Total Trades             : 1668
+2025-08-05 16:34:30,809 INFO Weighted Avg Hit Rate    : 0.515
+2025-08-05 16:34:30,809 INFO Weighted Holding Period  : 5.28
+2025-08-05 16:34:30,985 INFO Saved plot to C:\Users\angad\D drive\fordham\fordham\summer\tech_indicators_time_series\metrics_SOXX_plot.png
+2025-08-05 16:34:31,016 INFO
+===== Running walkforward for QQQ =====
+2010-01-04 00:00:00
+Duplicate timestamps: 0
+QQQ  | 99-pctile abs return: 0.02979168018947819
+2025-08-05 16:42:55,917 INFO ==== AGGREGATED PERFORMANCE METRICS ====
+2025-08-05 16:42:55,917 INFO Final Cumulative PnL     : 1.0647
+2025-08-05 16:42:55,917 INFO Aggregated CAGR          : 0.0043
+2025-08-05 16:42:55,917 INFO Aggregated Sharpe        : 0.0956
+2025-08-05 16:42:55,917 INFO Aggregated Volatility    : 0.1187
+2025-08-05 16:42:55,917 INFO Aggregated Max Drawdown  : -0.3775
+2025-08-05 16:42:55,917 INFO Total Trades             : 1804
+2025-08-05 16:42:55,917 INFO Weighted Avg Hit Rate    : 0.517
+2025-08-05 16:42:55,917 INFO Weighted Holding Period  : 5.34
+2025-08-05 16:42:56,039 INFO Saved plot to C:\Users\angad\D drive\fordham\fordham\summer\tech_indicators_time_series\metrics_QQQ_plot.png
+2025-08-05 16:42:56,070 INFO
+===== Running walkforward for SMH =====
+2010-01-04 00:00:00
+Duplicate timestamps: 0
+SMH  | 99-pctile abs return: 0.037659569627386216
+2025-08-05 16:51:18,619 INFO ==== AGGREGATED PERFORMANCE METRICS ====
+2025-08-05 16:51:18,619 INFO Final Cumulative PnL     : 1.8832
+2025-08-05 16:51:18,619 INFO Aggregated CAGR          : 0.0444
+2025-08-05 16:51:18,619 INFO Aggregated Sharpe        : 0.3668
+2025-08-05 16:51:18,619 INFO Aggregated Volatility    : 0.1486
+2025-08-05 16:51:18,620 INFO Aggregated Max Drawdown  : -0.4102
+2025-08-05 16:51:18,620 INFO Total Trades             : 1534
+2025-08-05 16:51:18,620 INFO Weighted Avg Hit Rate    : 0.522
+2025-08-05 16:51:18,620 INFO Weighted Holding Period  : 5.21
+2025-08-05 16:51:18,757 INFO Saved plot to C:\Users\angad\D drive\fordham\fordham\summer\tech_indicators_time_series\metrics_SMH_plot.png
+2025-08-05 16:51:18,786 INFO
+Duplicate timestamps: 0
+XLF  | 99-pctile abs return: 0.03551796794872608
+2025-08-05 16:59:56,317 INFO ==== AGGREGATED PERFORMANCE METRICS ====
+2025-08-05 16:59:56,318 INFO Final Cumulative PnL     : 1.4720
+2025-08-05 16:59:56,318 INFO Aggregated CAGR          : 0.0269
+2025-08-05 16:59:56,318 INFO Aggregated Sharpe        : 0.2734
+2025-08-05 16:59:56,318 INFO Aggregated Volatility    : 0.1262
+2025-08-05 16:59:56,318 INFO Aggregated Max Drawdown  : -0.2894
+2025-08-05 16:59:56,318 INFO Total Trades             : 1534
+2025-08-05 16:59:56,318 INFO Weighted Avg Hit Rate    : 0.521
+2025-08-05 16:59:56,318 INFO Weighted Holding Period  : 5.14
+2025-08-05 16:59:56,478 INFO Saved plot to C:\Users\angad\D drive\fordham\fordham\summer\tech_indicators_time_series\metrics_XLF_plot.png
+===== Running walkforward for XLV =====
+2010-01-04 00:00:00
+Duplicate timestamps: 0
+XLV  | 99-pctile abs return: 0.020997760552805812
+2025-08-05 17:08:25,867 INFO ==== AGGREGATED PERFORMANCE METRICS ====
+2025-08-05 17:08:25,867 INFO Final Cumulative PnL     : 1.3222
+2025-08-05 17:08:25,867 INFO Aggregated CAGR          : 0.0194
+2025-08-05 17:08:25,867 INFO Aggregated Sharpe        : 0.2712
+2025-08-05 17:08:25,867 INFO Aggregated Volatility    : 0.0837
+2025-08-05 17:08:25,867 INFO Aggregated Max Drawdown  : -0.1919
+2025-08-05 17:08:25,867 INFO Total Trades             : 1541
+2025-08-05 17:08:25,867 INFO Weighted Avg Hit Rate    : 0.515
+2025-08-05 17:08:25,867 INFO Weighted Holding Period  : 5.13
+2025-08-05 17:08:26,009 INFO Saved plot to C:\Users\angad\D drive\fordham\fordham\summer\tech_indicators_time_series\metrics_XLV_plot.png
+===== Running walkforward for XLRE =====
+2015-10-08 00:00:00
+Duplicate timestamps: 0
+XLRE  | 99-pctile abs return: 0.025137335449103588
+2025-08-05 17:11:53,681 INFO ==== AGGREGATED PERFORMANCE METRICS ====
+2025-08-05 17:11:53,681 INFO Final Cumulative PnL     : 1.0226
+2025-08-05 17:11:53,681 INFO Aggregated CAGR          : 0.0025
+2025-08-05 17:11:53,681 INFO Aggregated Sharpe        : 0.0761
+2025-08-05 17:11:53,681 INFO Aggregated Volatility    : 0.1025
+2025-08-05 17:11:53,681 INFO Aggregated Max Drawdown  : -0.2554
+2025-08-05 17:11:53,681 INFO Total Trades             : 905
+2025-08-05 17:11:53,681 INFO Weighted Avg Hit Rate    : 0.519
+2025-08-05 17:11:53,681 INFO Weighted Holding Period  : 5.20
+2025-08-05 17:11:53,820 INFO Saved plot to C:\Users\angad\D drive\fordham\fordham\summer\tech_indicators_time_series\metrics_XLRE_plot.png
+2025-08-05 17:08:26,024 INFO
+===== Running walkforward for GDX =====
+2010-01-04 00:00:00
+Duplicate timestamps: 0
+GDX  | 99-pctile abs return: 0.03888320615097673
+2025-08-05 17:19:18,882 INFO ==== AGGREGATED PERFORMANCE METRICS ====
+2025-08-05 17:19:18,882 INFO Final Cumulative PnL     : 2.6810
+2025-08-05 17:19:18,882 INFO Aggregated CAGR          : 0.0701
+2025-08-05 17:19:18,882 INFO Aggregated Sharpe        : 0.5317
+2025-08-05 17:19:18,882 INFO Aggregated Volatility    : 0.1479
+2025-08-05 17:19:18,882 INFO Aggregated Max Drawdown  : -0.2501
+2025-08-05 17:19:18,882 INFO Total Trades             : 1255
+2025-08-05 17:19:18,882 INFO Weighted Avg Hit Rate    : 0.509
+2025-08-05 17:19:18,882 INFO Weighted Holding Period  : 5.17
+2025-08-05 17:19:19,016 INFO Saved plot to C:\Users\angad\D drive\fordham\fordham\summer\tech_indicators_time_series\metrics_GDX_plot.png
+2025-08-05 17:19:19,048 INFO
+===== Running walkforward for FDN =====
+2010-01-04 00:00:00
+Duplicate timestamps: 0
+FDN  | 99-pctile abs return: 0.038287838906489284
+2025-08-05 17:27:31,169 INFO ==== AGGREGATED PERFORMANCE METRICS ====
+2025-08-05 17:27:31,169 INFO Final Cumulative PnL     : 0.6052
+2025-08-05 17:27:31,169 INFO Aggregated CAGR          : -0.0339
+2025-08-05 17:27:31,169 INFO Aggregated Sharpe        : -0.1599
+2025-08-05 17:27:31,169 INFO Aggregated Volatility    : 0.1474
+2025-08-05 17:27:31,169 INFO Aggregated Max Drawdown  : -0.6798
+2025-08-05 17:27:31,169 INFO Total Trades             : 1729
+2025-08-05 17:27:31,169 INFO Weighted Avg Hit Rate    : 0.522
+2025-08-05 17:27:31,169 INFO Weighted Holding Period  : 5.35
+2025-08-05 17:27:31,303 INFO Saved plot to C:\Users\angad\D drive\fordham\fordham\summer\tech_indicators_time_series\metrics_FDN_plot.png
+2025-08-05 17:27:31,323 INFO
+===== Running walkforward for SPY =====
+2010-01-04 00:00:00
+Duplicate timestamps: 0
+SPY  | 99-pctile abs return: 0.02740672100716539
+2025-08-05 17:36:02,101 INFO ==== AGGREGATED PERFORMANCE METRICS ====
+2025-08-05 17:36:02,101 INFO Final Cumulative PnL     : 1.3798
+2025-08-05 17:36:02,101 INFO Aggregated CAGR          : 0.0224
+2025-08-05 17:36:02,101 INFO Aggregated Sharpe        : 0.2543
+2025-08-05 17:36:02,101 INFO Aggregated Volatility    : 0.1114
+2025-08-05 17:36:02,101 INFO Aggregated Max Drawdown  : -0.2893
+2025-08-05 17:36:02,101 INFO Total Trades             : 1819
+2025-08-05 17:36:02,101 INFO Weighted Avg Hit Rate    : 0.517
+2025-08-05 17:36:02,101 INFO Weighted Holding Period  : 5.40
+2025-08-05 17:36:02,234 INFO Saved plot to C:\Users\angad\D drive\fordham\fordham\summer\tech_indicators_time_series\met

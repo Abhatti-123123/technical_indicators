@@ -108,6 +108,7 @@ def estimate_median_holding(signals_dict):
 def apply_volatility_sizing(
     price_series: pd.Series,
     base_pos: pd.Series,
+    sizer: VolatilityScaledSignalSizer,
     *,
     fast_lambda: float = 0.60,
     slow_lambda: float = 0.97,
@@ -122,28 +123,17 @@ def apply_volatility_sizing(
     Returns a scaled position series aligned with base_pos.
     """
 
-    sizer = VolatilityScaledSignalSizer(
-        fast_lambda=fast_lambda,
-        slow_lambda=slow_lambda,
-        fast_weight=fast_weight,
-        slow_weight=slow_weight,
-        max_leverage=max_leverage,
-        vol_floor=vol_floor,
-        leverage_smoothing_alpha=None,
-    )
-
     scaled_pos = []
-    returns = price_series.pct_change()  # daily returns
 
-    for idx in base_pos.index:
-        base = base_pos.loc[idx]
-        ret = returns.loc[idx]
-        if pd.isna(ret):
-            ret = 0.0  # warmup; could also skip first few if preferred
-        scaled = sizer.update_and_scale(base, ret)
-        scaled_pos.append(scaled)
+    returns = price_series.pct_change().fillna(0).values
+    base_positions = base_pos.values
+    scaled_pos = np.empty(len(base_positions))
 
-    return pd.Series(scaled_pos, index=base_pos.index, name="vol_scaled_position")
+    for i in range(len(base_positions)):
+        scaled_pos[i] = sizer.update_and_scale(base_positions[i], returns[i])
+
+    scaled_pos_series = pd.Series(scaled_pos, index=base_pos.index, name="vol_scaled_position")
+    return pd.Series(scaled_pos_series, index=base_pos.index, name="vol_scaled_position")
 
 
 import time
@@ -164,6 +154,18 @@ def safe_download_prices(*args, max_retries=5, backoff_base=2, **kwargs):
     # final failure: propagate with context
     logger.warning(f"Failed to download after {max_retries} attempts: {last_exc!r}")
     return None
+
+
+def precompute_features(close_series, vix_df):
+    ret = close_series.pct_change().fillna(0)
+    vol5 = ret.rolling(5).std().fillna(0)
+    vol21 = ret.rolling(21).std().fillna(0)
+    dVIX = vix_df["VIX"].pct_change().fillna(0)
+    VIX_ratio = vix_df["VIX_ratio"].fillna(1)
+
+    feats = pd.concat([ret.rename('ret'), vol5.rename('vol5'), vol21.rename('vol21'),
+                       dVIX.rename('dVIX'), VIX_ratio.rename('VIX_ratio')], axis=1)
+    return feats
 
 # -----------------------------------------
 # Walk-Forward Backtesting Orchestration
@@ -204,6 +206,8 @@ def run_walkforward_pipeline(
     vix_df = pd.concat([vix, vxv], axis=1).reindex(close.index).ffill()
     vix_df["VIX_ratio"] = vix_df["VIX"] / vix_df["VXV"]
 
+    precompfeats = precompute_features(close, vix_df)
+
     # Store aggregated metrics
     all_metrics = []
     results_list = []
@@ -215,19 +219,26 @@ def run_walkforward_pipeline(
     for ind in INDICATOR_LIST:
         close_new = add_indicator(close_new, ind)\
     
-    indicators_raw = close_new.drop(columns="Close")
+    # indicators_raw = close_new.drop(columns="Close")
 
     OUTDIR = Path("stationarity")
     OUTDIR.mkdir(exist_ok=True)
     
-    # 1.  Write a one-off CSV report (good for PR / tracking)
-    stationarity_report(indicators_raw).to_csv(f"{OUTDIR}/stationarity_pre_{tickers[0]}.csv")
+    # # 1.  Write a one-off CSV report (good for PR / tracking)
+    # stationarity_report(indicators_raw).to_csv(f"{OUTDIR}/stationarity_pre_{tickers[0]}.csv")
 
-    # 2.  Transform to stationarity – example: log-diff Volatility only
-    indicators = force_stationary(indicators_raw, force_log=['Volatility'])
+    # # 2.  Transform to stationarity – example: log-diff Volatility only
+    # indicators = force_stationary(indicators_raw, force_log=['Volatility'])
 
-    # 3.  Save post-check report
-    stationarity_report(indicators).to_csv(f"{OUTDIR}/stationarity_post_{tickers[0]}.csv")
+    # # 3.  Save post-check report
+    # stationarity_report(indicators).to_csv(f"{OUTDIR}/stationarity_post_{tickers[0]}.csv")
+
+    sizer = VolatilityScaledSignalSizer(
+        leverage_smoothing_alpha=None,
+    )
+    train_returns = close.iloc[range(start_idx, start_idx + window_size)].pct_change().fillna(0).values
+    for ret in train_returns:
+        sizer.update_and_scale(base_pos=0, ret=ret)  # update EWMA variances only
 
     while start_idx + window_size + test_size <= n:
         # Define indices for train and test
@@ -238,6 +249,10 @@ def run_walkforward_pipeline(
         train_data = close.iloc[train_idx].to_frame(name='Close')
         test_data = close.iloc[test_idx].to_frame(name='Close')
         full_data = close.iloc[full_idx].to_frame(name='Close')
+
+        feats_train = precompfeats.iloc[train_idx]
+        feats_test = precompfeats.iloc[test_idx]
+        feats_full = precompfeats.iloc[full_idx]
 
         # 2a. Tune parameters for each indicator on train set
         param_grids = {
@@ -272,7 +287,10 @@ def run_walkforward_pipeline(
             df = add_indicator(df, ind, **params)
             df_train = add_indicator(df_train, ind, **params)
             df_full = add_indicator(df_full, ind, **params)
-
+        
+        df = df.drop(columns="Close")
+        df_train = df_train.drop(columns="Close")
+        df_full = df_full.drop(columns="Close")
         # indicators_raw = df_train.drop(columns="Close")
 
         # 2c. Generate signals
@@ -296,30 +314,22 @@ def run_walkforward_pipeline(
 
          # --- Regime Detection using HMM on multi-features ---
         # Build feature DataFrames for HMM input
-        def build_feats(series: pd.Series) -> pd.DataFrame:
-            ret = series.pct_change().fillna(0)
-            vol5 = series.pct_change().rolling(5).std().fillna(0)
-            vol21= series.pct_change().rolling(21).std().fillna(0)
-            vix_pct = vix_df['VIX'].pct_change().reindex(series.index).fillna(0)
-            ratio  = vix_df['VIX_ratio'].reindex(series.index).fillna(1)
-            return pd.concat([ret.rename('ret'), vol5.rename('vol5'), vol21.rename('vol21'),
-                              vix_pct.rename('dVIX'), ratio.rename('VIX_ratio')], axis=1)
 
-        feats_train = (
-            build_feats(train_data['Close'])          # create features
-            .reindex(train_data.index)              # align to TRAIN dates
-        )
+        # feats_train = (
+        #     build_feats(train_data['Close'])          # create features
+        #     .reindex(train_data.index)              # align to TRAIN dates
+        # )
 
-        feats_test  = (
-            build_feats(test_data['Close'])
-            .reindex(test_data.index)               # align to TEST dates
-        )
+        # feats_test  = (
+        #     build_feats(test_data['Close'])
+        #     .reindex(test_data.index)               # align to TEST dates
+        # )
 
-        feats_full  = (
-            build_feats(full_data['Close'])           # ← note: variable is data_full
-            .reindex(full_data.index)               # align to FULL dates
-        )
-        # # Fit HMM and predict regimes
+        # feats_full  = (
+        #     build_feats(full_data['Close'])           # ← note: variable is data_full
+        #     .reindex(full_data.index)               # align to FULL dates
+        # )
+        # Fit HMM and predict regimes
         hmm_model = fit_hmm_returns(feats_full, n_states=3)
         reg_train, _ = predict_hmm(hmm_model, feats_full)
         reg_test,  _ = predict_hmm(hmm_model, feats_test)
@@ -371,22 +381,25 @@ def run_walkforward_pipeline(
             name="base_position"
         )
 
+
         reg_composite = apply_weights(Xtest, reg_test, w_dict)
 
         base_pos = 0.5 * reg_composite + 0.5 * raw_signal
 
+        # Pre-warm scaler on the training data for stable EWMA values
         # apply volatility-based sizing overlay
-        composite = apply_volatility_sizing(
-            price_series=close.iloc[test_idx],
-            base_pos=base_pos,
-            fast_lambda=0.60,
-            slow_lambda=0.97,
-            fast_weight=0.7,
-            slow_weight=0.3,
-            max_leverage=3.0,
-            vol_floor=1e-3,
-            leverage_smoothing_alpha=0.2,
-        )
+        composite = apply_volatility_sizing(close.iloc[test_idx], base_pos, sizer=sizer)
+        # composite = apply_volatility_sizing(
+        #     price_series=close.iloc[test_idx],
+        #     base_pos=raw_signal,
+        #     fast_lambda=0.60,
+        #     slow_lambda=0.97,
+        #     fast_weight=0.7,
+        #     slow_weight=0.3,
+        #     max_leverage=3.0,
+        #     vol_floor=1e-3,
+        #     leverage_smoothing_alpha=0.2,
+        # )
 
         # >>> 4.  Composite position series for TEST <<<
         
@@ -439,6 +452,9 @@ def main():
         print("Duplicate timestamps:", len(dupes))
         assert results.index.to_series().diff().dt.days.mode().iloc[0] == 1, \
        "daily_returns is NOT daily – drop the √252 if this fails"
+        # freq_mode = results.index.to_series().diff().dt.days.mode()
+        # if freq_mode.empty or freq_mode.iloc[0] != 1:
+        #     raise AssertionError(f"daily_returns is NOT daily (mode diff {freq_mode.tolist()}); drop sqrt(252) or fix index.")
         # === Cumulative PnL ===
         results["cum_pnl"] = (1 + results["strategy_return"]).cumprod()
 
@@ -457,7 +473,7 @@ def main():
         # CAGR from overall cumulative return
         final_cum_return = results["cum_pnl"].iloc[-1]
         total_days = len(daily_returns)
-        agg_cagr = (1 + final_cum_return) ** (252 / total_days) - 1
+        agg_cagr = (final_cum_return) ** (252 / total_days) - 1
 
         # Final max drawdown
         agg_drawdown = results["drawdown"].min()

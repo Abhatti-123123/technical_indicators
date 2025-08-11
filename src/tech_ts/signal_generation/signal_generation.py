@@ -123,8 +123,31 @@ def score_to_position(proba: np.ndarray,
     score = 2 * proba - 1                     # map [0,1] → [-1,+1]
     pos   = np.zeros_like(score, dtype=int)
     pos[ score >=  thresh] =  1
-    pos[ score <= -thresh] = 0
+    pos[ score <= -thresh] = -1
     return pos
+
+# def score_to_position(proba: np.ndarray,
+#                       thresh: float = 0.3) -> np.ndarray:
+#     """
+#     proba  : model.predict_proba()[:, 1]  (P(↑))
+#     thresh : trade only when conviction > thresh
+#     returns: +1 / 0 / –1 vector
+#     """
+#     score = 2 * proba - 1  # map [0,1] → [-1,+1]
+
+#     # strong up → 1, strong down → 0, else NaN (hold previous)
+#     s = np.where(score >= thresh, 1.0,
+#                  np.where(score <= -thresh, 0.0, np.nan))
+
+#     # seed first value to 0 if it's in the hold band so forward-fill has a base
+#     if np.isnan(s[0]):
+#         s[0] = 0.0
+
+#     # build last-valid index and forward-fill
+#     idx = np.where(~np.isnan(s), np.arange(len(s)), 0)
+#     last_valid = np.maximum.accumulate(idx)
+#     pos = s[last_valid].astype(int)
+#     return pos
 
 # -----------------------------------------
 # Unit Tests for Signal Generation
